@@ -16,29 +16,42 @@ from functools import lru_cache
 import re
 
 import matplotlib
-from matplotlib.colors import to_hex, to_rgb
+from matplotlib.colors import LinearSegmentedColormap, to_hex, to_rgb
+
+# Yellow shades: matplotlib has no single-hue yellow map. Light yellow → gold → dark ochre, so that
+# the part dark enough for thin lines on white (3:1) still reads as the yellow family.
+YELLOWS_CMAP = "MakerYellows"
+if YELLOWS_CMAP not in matplotlib.colormaps:
+    matplotlib.colormaps.register(LinearSegmentedColormap.from_list(
+        YELLOWS_CMAP, ["#FFFBD5", "#FFE873", "#F2C500", "#C79A00", "#8F6B00", "#5C4300"]))
 
 
 PALETTES = {
     "paper": ["#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00", "#56B4E9", "#000000", "#F0E442"],
     "okabe_ito": ["#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#000000"],
     "blues": "Blues", "oranges": "Oranges", "greens": "Greens", "greys": "Greys", "viridis": "viridis",
+    "yellows": YELLOWS_CMAP, "purples": "Purples",
     "tab10": ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"],
 }
 PALETTE_NAMES = {
     "ja": {"paper": "論文用（青・朱・緑…）", "okabe_ito": "Okabe–Ito", "blues": "青の濃淡", "oranges": "朱の濃淡",
-           "greens": "緑の濃淡", "greys": "灰の濃淡", "viridis": "viridis", "tab10": "matplotlib 標準"},
+           "greens": "緑の濃淡", "greys": "灰の濃淡", "viridis": "viridis", "yellows": "黄の濃淡", "purples": "紫の濃淡",
+           "tab10": "matplotlib 標準"},
     "en": {"paper": "Publication (blue, vermilion, green…)", "okabe_ito": "Okabe–Ito", "blues": "Blue shades",
            "oranges": "Orange shades", "greens": "Green shades", "greys": "Grey shades", "viridis": "viridis",
-           "tab10": "Matplotlib default"},
+           "yellows": "Yellow shades", "purples": "Purple shades", "tab10": "Matplotlib default"},
     "vi": {"paper": "Cho bài báo (xanh dương, đỏ son, xanh lá…)", "okabe_ito": "Okabe–Ito", "blues": "Xanh dương đậm nhạt",
            "oranges": "Cam đậm nhạt", "greens": "Xanh lá đậm nhạt", "greys": "Xám đậm nhạt", "viridis": "viridis",
+           "yellows": "Vàng đậm nhạt", "purples": "Tím đậm nhạt",
            "tab10": "Mặc định của matplotlib"},
     "th": {"paper": "สำหรับบทความ (น้ำเงิน แสด เขียว…)", "okabe_ito": "Okabe–Ito", "blues": "เฉดน้ำเงิน",
            "oranges": "เฉดส้ม", "greens": "เฉดเขียว", "greys": "เฉดเทา", "viridis": "viridis",
+           "yellows": "เฉดเหลือง", "purples": "เฉดม่วง",
            "tab10": "ค่าเริ่มต้นของ matplotlib"},
 }
 DEFAULT_PALETTE = "paper"
+# Hues for grouped shades (one hue per group of spectra), in the default order.
+GROUP_HUES = ["blues", "yellows", "oranges", "greens", "purples", "greys"]
 MAX_SHADE_STEPS = 12
 MIN_CONTRAST = 3.0              # against white: the guideline for lines and other graphics
 SHADE_INTERVAL = (0.35, 0.95)   # the graph app's part of the colour map (first series, last series)
@@ -134,6 +147,22 @@ def palette_sequence(name: str, n: int, reverse: bool = False, steps: int = 0) -
         base = palette_colors(name, min(steps, MAX_SHADE_STEPS), reverse)
         return [base[i % len(base)] for i in range(n)]
     return palette_colors(name, n, reverse)
+
+
+def grouped_colors(n: int, group_size: int, hues=None, reverse: bool = False, steps: int = 0) -> list[str]:
+    """Colours for n items in display order, in groups of ``group_size``: each group takes one hue
+    (blue, yellow, vermilion …) and its members the shades of that hue, light to dark, so the k-th
+    member of every group has the same depth. Hues repeat when there are more groups than hues."""
+    size = max(1, int(group_size))
+    hues = [h for h in (hues or GROUP_HUES) if is_shade_palette(h)] or list(GROUP_HUES)
+    shades = {}
+    out = []
+    for position in range(max(0, int(n))):
+        hue = hues[(position // size) % len(hues)]
+        if hue not in shades:
+            shades[hue] = palette_sequence(hue, size, reverse, steps)
+        out.append(shades[hue][position % size])
+    return out
 
 
 def swatch_colors(name: str, n_items: int, reverse: bool = False, steps: int = 0) -> list[str]:

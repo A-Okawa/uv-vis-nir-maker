@@ -58,7 +58,7 @@ class ProjectTests(unittest.TestCase):
                {"sp_color_0": "blue"}, {"ls_0": "wavy"}, {"ord_0": 0}, {"scale_0": 0.0}, {"legend_loc": "nowhere"},
                {"marks_text": "x" * 20001}, {"input_y_mode": "%A"}, {"dpi_export": 450}, {"palette": "rainbow"},
                {"label_side": "上"}, {"lang_radio": "Deutsch"}, {"yrange": (1.0, 1.0)}, {"peak_kind": "both"},
-               {"smooth_window": 5.5}, {"margin_left": 0.9, "margin_right": 0.5}]
+               {"smooth_window": 5.5}, {"palette_group_hues": ["paper"]}, {"palette_group_hues": []}, {"palette_group_size": 13}, {"legend_ncol": 0}, {"margin_left": 0.9, "margin_right": 0.5}]
         for settings in bad:
             with self.subTest(settings=settings), self.assertRaises(ProjectError):
                 clean_settings({**SETTINGS, **settings})
@@ -104,7 +104,8 @@ class ProjectTests(unittest.TestCase):
                 continue
             self.assertIn(key, ("size_unit", "figure_preset", "reference_line_width", "axes_line_width", "tick_length",
                                 "tick_direction", "margin_left", "margin_right", "margin_bottom", "margin_top",
-                                "transparent_background", "svg_text_editable"), key)
+                                "transparent_background", "svg_text_editable",
+                                "legend_ncol", "legend_fit", "palette_group_size", "palette_group_hues"), key)
         self.assertTrue(PATTERN_KEY.fullmatch("ls_12"))
         self.assertFalse(PATTERN_KEY.fullmatch("ls_x"))
 

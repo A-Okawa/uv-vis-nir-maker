@@ -14,7 +14,7 @@ from pathlib import Path
 import re
 import tempfile
 from figure_style import STYLE_KEYS, validate_style_settings
-from palettes import PALETTES
+from palettes import PALETTES, is_shade_palette
 
 PROJECT_VERSION = 1
 PROJECT_FORMAT = "uvvisnir-maker-project"
@@ -34,7 +34,7 @@ GLOBAL_KEYS = (
     # axes and arrangement
     "xrange", "x_unit", "y_mode", "y_percent", "tauc_transition", "tauc_fit", "tauc_range", "show_eg",
     "normalize_mode", "norm_window", "norm_at", "stack", "global_offset",
-    "show_legend", "legend_loc", "yrange_auto", "yrange", "y_major_tick", "show_yticks",
+    "show_legend", "legend_loc", "legend_ncol", "legend_fit", "yrange_auto", "yrange", "y_major_tick", "show_yticks",
     "major_tick", "show_minor", "minor_tick", "x_label", "y_label",
     # input defaults and processing
     "input_x_unit", "input_y_mode", "smooth_on", "smooth_window", "smooth_order",
@@ -50,11 +50,12 @@ GLOBAL_KEYS = (
     "show_panel", "lang_radio",
     # palette
     "palette", "palette_reverse", "palette_steps", "palette_from", "palette_to", "palette_base_color",
+    "palette_group_size", "palette_group_hues",
 ) + tuple(STYLE_KEYS)
 PATTERN_KEY = re.compile(r"(?:vis|ord|_val_lbl|sp_color|extra_offset|yoff|scale|ls)_\d+$")
 BOOL_KEYS = {"y_percent", "tauc_fit", "show_eg", "stack", "show_legend", "yrange_auto", "show_yticks", "show_minor",
              "smooth_on", "show_peaks", "peak_label_rotate", "marks_show_value", "bands_label", "show_zoom",
-             "show_indices", "show_side_labels", "show_panel", "palette_reverse"}
+             "show_indices", "show_side_labels", "show_panel", "palette_reverse", "legend_fit"}
 BOUNDS = {
     "global_offset": (0., 3.), "y_major_tick": (0., 1e6), "major_tick": (1e-3, 1e6), "minor_tick": (1e-4, 1e6),
     "norm_at": X_LIMITS,
@@ -66,9 +67,10 @@ BOUNDS = {
     "fig_width": (25 / 25.4, 20.), "fig_height": (25 / 25.4, 20.),
     "font_size": (4, 28), "tick_font_size": (4, 28), "legend_font_size": (4, 28),
     "palette_steps": (0, 12), "palette_from": (1, 10000), "palette_to": (0, 10000),
+    "palette_group_size": (0, 12), "legend_ncol": (1, 6),
 }
 INT_KEYS = {"smooth_window", "smooth_order", "peak_decimals", "marks_decimals", "marks_fontsize", "annotation_font_size",
-            "indices_decimals", "label_fontsize", "palette_steps", "palette_from", "palette_to"}
+            "indices_decimals", "label_fontsize", "palette_steps", "palette_from", "palette_to", "palette_group_size", "legend_ncol"}
 MAX_AXIS_LABEL = 500
 MAX_MARKS_TEXT = 20000
 
@@ -152,6 +154,11 @@ def clean_settings(settings: dict) -> dict:
             valid = isinstance(value, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", value) is not None
         elif key == "palette":
             valid = value in PALETTES
+        elif key == "palette_group_hues":
+            valid = (isinstance(value, (list, tuple)) and 1 <= len(value) <= 12
+                     and all(isinstance(v, str) and is_shade_palette(v) for v in value))
+            if valid:
+                value = list(value)
         elif key == "dpi_export":
             valid = type(value) is int and value in (300, 600)
         elif re.fullmatch(r"ord_\d+", key):

@@ -11,7 +11,7 @@ import streamlit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import harness
-from palettes import palette_sequence
+from palettes import contrast_ratio, palette_sequence
 from project_io import decode_project
 from style_templates import TEMPLATE_KEYS, decode_style_template, encode_style_template
 
@@ -299,6 +299,67 @@ class ProjectTests(unittest.TestCase):
         r = harness.report(at)
         self.assertEqual(r["labels"], ["Hitachi"])
         self.assertEqual(r["colors"], ["#8E24AA"])
+
+
+NINE = {f"s{g}_{k}.csv": ("Wavelength (nm),%R\n" + "\n".join(f"{x},{20 + 5 * g + 3 * k + 0.02 * (x - 300)}" for x in range(300, 801, 10))).encode()
+        for g in range(3) for k in range(3)}
+
+
+class GroupedShadeTests(unittest.TestCase):
+    def test_three_groups_of_three_take_blue_yellow_and_vermilion_shades(self):
+        at = harness.run_app(NINE, {"palette_group_size": 3})
+        r = harness.report(at)
+        blues, yellows, oranges = (palette_sequence(h, 3) for h in ("blues", "yellows", "oranges"))
+        self.assertEqual(r["colors"], blues + yellows + oranges)
+        for color in r["colors"]:
+            self.assertGreaterEqual(contrast_ratio(color), 3.0, color)
+        at = harness.rerun(at, {"vis_1": False})
+        self.assertEqual(harness.report(at)["colors"], blues + yellows + oranges, "hiding one spectrum keeps the groups in place")
+        at.multiselect(key="palette_group_hues").set_value(["greens", "purples"]).run()
+        r = harness.report(at)
+        self.assertEqual(r["colors"][3:6], palette_sequence("purples", 3))
+        self.assertEqual(r["colors"][6:9], palette_sequence("greens", 3), "hues repeat when groups outnumber them")
+        self.assertEqual(r["session"]["settings"]["palette_group_hues"], ["greens", "purples"])
+        at.number_input(key="palette_group_size").set_value(0).run()
+        colors = harness.report(at)["colors"]
+        self.assertEqual([colors[0], colors[2], colors[3]], ["#0072B2", "#D55E00", "#009E73"], "back to the single palette over the visible spectra")
+
+    def test_range_leaves_a_reference_outside_the_groups(self):
+        at = harness.run_app(NINE, {"palette_group_size": 4, "palette_from": 2})
+        colors = harness.report(at)["colors"]
+        self.assertEqual(colors[0], "#000000")
+        self.assertEqual(colors[1:5], palette_sequence("blues", 4))
+        self.assertEqual(colors[5:9], palette_sequence("yellows", 4))
+
+
+class LegendFitTests(unittest.TestCase):
+    LONG = {f"_val_lbl_{i}": f"Sample {i + 1} sieved under 45 µm, annealed at 1200 °C for 10 h in air, second batch" for i in range(9)}
+
+    def inside(self, box, outer, tolerance=1.0):
+        return box[0] >= outer[0] - tolerance and box[1] >= outer[1] - tolerance and box[2] <= outer[2] + tolerance and box[3] <= outer[3] + tolerance
+
+    def test_long_legends_stay_inside_the_axes_and_the_figure(self):
+        at = harness.run_app(NINE, self.LONG)
+        r = harness.report(at)
+        box = r["legend_box"]
+        self.assertTrue(self.inside(box[:4], box[6:10]), box)
+        self.assertLess(r["legend_layout"]["font"], 6.5, "the text shrank to fit")
+        at = harness.run_app(NINE, {"legend_loc": "outside right", **{f"_val_lbl_{i}": f"Sample {i + 1}, 25–45 µm, 1200 °C" for i in range(9)}})
+        r = harness.report(at)
+        box = r["legend_box"]
+        self.assertTrue(self.inside(box[:4], [0, 0, box[4], box[5]]), box)
+        self.assertGreaterEqual(box[0], box[8] - 1.0, "right of the axes")
+        self.assertLess(r["legend_layout"]["right"], 0.9)
+        at = harness.rerun(at, {"legend_fit": False})
+        r = harness.report(at)
+        self.assertEqual(r["legend_layout"], {"font": 6.5, "right": 0.965})
+
+    def test_short_legends_keep_their_size_and_columns_apply(self):
+        at = harness.run_app(NINE, {"legend_ncol": 3})
+        r = harness.report(at)
+        self.assertEqual(r["legend_layout"]["font"], 6.5)
+        box = r["legend_box"]
+        self.assertGreater(box[2] - box[0], 2.5 * (box[3] - box[1]), "three columns: wider than tall")
 
 
 class LanguageTests(unittest.TestCase):

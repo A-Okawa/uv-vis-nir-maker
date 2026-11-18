@@ -44,6 +44,8 @@ if active:
         "session": _json.loads(build_session_json()),
         "png_header": png_bytes[:8], "png": png_export_bytes or png_bytes, "tiff_header": (tiff_bytes or b"")[:4], "svg": svg_bytes.decode("utf-8", "replace")[:200000],
         "indices": indices_table() if show_indices else None,
+        "legend_layout": dict(legend_layout),
+        "legend_box": ([float(v) for v in fig.axes[0].get_legend().get_window_extent().extents] + [float(fig.bbox.width), float(fig.bbox.height)] + [float(v) for v in fig.axes[0].get_window_extent().extents]) if fig.axes[0].get_legend() else None,
     }
 '''
 
@@ -63,7 +65,7 @@ if st.session_state.pop("_test_new_project", False):
 def ui_test_source() -> str:
     tree = copy.deepcopy(TREE)
     for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in ("selectbox", "radio"):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in ("selectbox", "radio", "multiselect"):
             node.keywords = [kw for kw in node.keywords if kw.arg != "format_func"]
     for index, node in enumerate(tree.body):
         if isinstance(node, ast.Expr) and ast.unparse(node).startswith("st.sidebar.caption(f'Last updated"):

@@ -28,7 +28,7 @@ from figure_style import (
 )
 from palettes import (
     PALETTES, PALETTE_NAMES, DEFAULT_PALETTE, REFERENCE_COLORS, MAX_SHADE_STEPS,
-    palette_sequence, swatch_colors, load_colors, color_emoji,
+    palette_sequence, swatch_colors, load_colors, color_emoji, grouped_colors, is_shade_palette, GROUP_HUES,
 )
 from rich_text import rich, to_html, plain
 from style_templates import encode_style_template, decode_style_template
@@ -37,8 +37,8 @@ from plot_extras import (
     add_mpl_zoom_inset, add_plotly_zoom_inset, top_labels_height,
 )
 
-APP_VERSION = "1.0"
-LAST_UPDATED = "2026-10-30"
+APP_VERSION = "1.1"
+LAST_UPDATED = "2026-11-18"
 LOCAL_MODE = os.environ.get("UVVIS_MAKER_LOCAL") == "1"
 # Named colours in the graph app's format; copy that app's colors.csv here to share its names.
 COLORS_FILE = Path(__file__).resolve().parent / "colors.csv"
@@ -372,6 +372,13 @@ def palette_plan():
     items = palette_items()
     lo, hi = palette_range(len(items))
     shaded = items[lo - 1:hi]
+    group_size = palette_group_size()
+    if group_size:
+        # Groups of spectra in display order (three sieve fractions of one sample, say): one hue per
+        # group, the same shades within each. Hidden spectra keep their place, so the groups stay put.
+        plan = {key: palette_base_color() for key, _ in items[:lo - 1] + items[hi:]}
+        plan.update(zip([key for key, _ in shaded], grouped_colors(len(shaded), group_size, palette_group_hues(), reverse, steps)))
+        return plan, group_size
     visible = [key for key, shown in shaded if shown]
     hidden = [key for key, shown in shaded if not shown]
     plan = {key: palette_base_color() for key, _ in items[:lo - 1] + items[hi:]}
@@ -380,11 +387,23 @@ def palette_plan():
     return plan, len(visible)
 
 
+def palette_group_size():
+    """Spectra per colour group (0: no groups, one palette over all spectra)."""
+    return min(max(_int_or(st.session_state.get("palette_group_size"), 0), 0), MAX_SHADE_STEPS)
+
+
+def palette_group_hues():
+    value = st.session_state.get("palette_group_hues")
+    hues = [h for h in value if is_shade_palette(h)] if isinstance(value, (list, tuple)) else []
+    return hues or list(GROUP_HUES)
+
+
 def _apply_palette():
     """Colour the visible spectra: the palette within the range, the base colour outside."""
     plan, _ = palette_plan()
+    grouped = bool(palette_group_size())
     for key, shown in palette_items():
-        if shown:
+        if shown or grouped:
             st.session_state[key] = plan[key]
     for key in list(st.session_state):
         if str(key).startswith(("_palview_", "_cname_")):
@@ -833,8 +852,17 @@ legend_loc = st.sidebar.selectbox(ui("凡例の位置", "Legend position"), list
                            "center right": ui("右中央", "Centre right"), "center left": ui("左中央", "Centre left"),
                            "upper center": ui("上中央", "Upper centre"), "lower center": ui("下中央", "Lower centre"),
                            "outside right": ui("図の外（右）", "Outside, right")}[v]) if show_legend else "upper right"
-if show_legend and legend_loc == "outside right":
-    st.sidebar.caption(ui("右余白（「線・フォント・余白」）を広げると凡例が入ります。", "Widen the right margin (Lines, fonts and margins) to make room for the legend."))
+if show_legend:
+    _lg1, _lg2 = st.sidebar.columns(2)
+    legend_ncol = int(_lg1.number_input(ui("凡例の列数", "Legend columns"), 1, 6, value=_widget_default("legend_ncol", 1, number=True), step=1, key="legend_ncol"))
+    _lg2.markdown('<div style="height:1.75rem"></div>', unsafe_allow_html=True)
+    legend_fit = _lg2.checkbox(ui("図に収める", "Keep inside the figure"), value=_widget_default("legend_fit", True, checkbox=True), key="legend_fit",
+                               help=ui("凡例が図や軸の枠からはみ出すときに、自動で収めます。「図の外（右）」では軸を左に縮めて凡例の場所を空け、"
+                                       "図の中では凡例の文字を必要なだけ小さくします（下限 4 pt）。項目が多いときは列数を増やすと文字を小さくせずに済みます。",
+                                       "Keeps the legend from running off the figure or the axes. 'Outside, right' narrows the axes to make room; "
+                                       "inside the axes the legend text shrinks as far as needed (4 pt at least). With many entries, more columns avoid the shrinking."))
+else:
+    legend_ncol, legend_fit = 1, True
 
 st.sidebar.subheader(T["tick_settings"])
 show_yticks = st.sidebar.checkbox(ui("縦軸の目盛りを表示", "Show y-axis ticks"), value=_widget_default("show_yticks", True, checkbox=True), key="show_yticks")
@@ -1126,7 +1154,8 @@ if active:
 
     orders, visibles, labels, colors_sel, line_styles, abs_offsets, scales = [], [], [], [], [], [], []
 
-    for _key, _value in (("palette", DEFAULT_PALETTE), ("palette_reverse", False), ("palette_steps", 0),
+    for _key, _value in (("palette_group_size", 0),
+                         ("palette", DEFAULT_PALETTE), ("palette_reverse", False), ("palette_steps", 0),
                          ("palette_from", 1), ("palette_to", 0), ("palette_base_color", "#000000")):
         st.session_state.setdefault(_key, _value)
     if st.session_state["palette"] not in PALETTES:
@@ -1144,6 +1173,21 @@ if active:
                             "濃淡と viridis は、一番薄い色でも白地とのコントラストが 3:1 以上（細い線の目安）になる濃さから始まります。",
                             "The graph app's palettes. Choosing one colours the visible spectra in display order. "
                             "Shades and viridis start at a colour with at least 3:1 contrast against white (the guideline for thin lines)."))
+                st.number_input(ui("グループの大きさ（0 = グループにしない）", "Group size (0 = no groups)"), min_value=0, max_value=MAX_SHADE_STEPS, step=1,
+                    key="palette_group_size", on_change=_apply_palette,
+                    help=ui("表示順に、この数ずつを 1 グループにして、グループごとに色（青・黄・朱…）を変え、グループの中は濃淡にします。"
+                            "例：9 本で、同じ試料がふるいの粒径違いで 3 本ずつなら 3。1〜3 本目が青の濃淡、4〜6 本目が黄の濃淡、7〜9 本目が朱の濃淡になり、"
+                            "同じ粒径は各グループで同じ濃さです。並びは「表示順」で決まります。",
+                            "In display order, every this many spectra form a group: each group takes its own hue (blue, yellow, vermilion …) and its members the shades of it. "
+                            "E.g. 3 for nine spectra of three samples in three sieve fractions: spectra 1–3 in blue shades, 4–6 in yellow, 7–9 in vermilion, "
+                            "the same fraction equally deep in every group. The grouping follows the display order."))
+                if palette_group_size():
+                    st.session_state["palette_group_hues"] = palette_group_hues()
+                    st.multiselect(ui("グループごとの色（選んだ順）", "Hue of each group (in the order chosen)"), [p for p in PALETTES if is_shade_palette(p) and p != "viridis"],
+                        key="palette_group_hues", format_func=lambda key: PALETTE_NAMES[_lang_code][key], on_change=_apply_palette,
+                        help=ui("1 グループ目から順に使います。グループの数より少なければ繰り返します。黄は白地で見えるように、濃い黄（金色〜黄土色）の範囲を使います。",
+                                "Used from the first group on, repeating if there are more groups. Yellow uses its darker part (gold to ochre) so the lines stay visible on white."))
+                    st.caption(ui("グループにしている間は、上の「色の組み合わせ」の代わりにこの色を使います。", "While grouping, these hues replace the palette chosen above."))
                 if len(active) >= 2:
                     _n = len(active)
                     _lo, _hi = palette_range(_n)
@@ -1327,6 +1371,43 @@ if active:
             return dict(loc="center left", bbox_to_anchor=(1.01, 0.5))
         return dict(loc=legend_loc)
 
+    # What the legend ended up with after fitting: its font size and the axes' right edge (figure fraction).
+    legend_layout = {"font": legend_font_size, "right": plot_style["margin_right"]}
+
+    def place_legend(fig, ax, handles):
+        """Draw the legend and, when asked, keep it inside the figure.
+
+        Outside right: the axes' right edge moves left by the legend's width (down to 45 % of the figure
+        for the axes), then the text shrinks. Inside: the text shrinks until the legend is no wider or
+        taller than the axes. Sizes go down in 0.5 pt steps to 4 pt.
+        """
+        outside = legend_loc == "outside right"
+        size = float(legend_font_size)
+        while True:
+            if ax.get_legend() is not None:
+                ax.get_legend().remove()
+            legend = ax.legend(handles=handles, frameon=False, ncol=legend_ncol, fontsize=size,
+                               columnspacing=1.0, handlelength=1.6, handletextpad=0.5, labelspacing=0.3,
+                               borderaxespad=0.3, **mpl_legend_options())
+            apply_mpl_style(fig, plot_style)
+            right = plot_style["margin_right"]
+            if not legend_fit:
+                break
+            fig.canvas.draw()
+            box, figure_box = legend.get_window_extent(), fig.bbox
+            if outside:
+                right = min(right, 1.0 - box.width / figure_box.width - 0.025)
+                fits = right - plot_style["margin_left"] >= 0.45 and box.height <= 0.98 * figure_box.height
+                right = max(right, plot_style["margin_left"] + 0.45)
+                fig.subplots_adjust(right=right)
+            else:
+                axes_box = ax.get_window_extent()
+                fits = box.width <= 0.98 * axes_box.width and box.height <= 0.98 * axes_box.height
+            if fits or size <= 4.0:
+                break
+            size = max(4.0, size - 0.5)
+        legend_layout.update(font=float(size), right=float(right))
+
     # ===== 図の生成 =====
     @plt.rc_context()
     def build_figure(show_legend=show_legend):
@@ -1401,12 +1482,12 @@ if active:
         add_mpl_marks(ax, marks, color=marks_color, linestyle=MPL_LINESTYLE[marks_style], linewidth=plot_style["reference_line_width"],
                       label_mode=marks_label_mode, show_value=marks_show_value, decimals=marks_decimals, font_size=marks_fontsize,
                       rich=rich, x_range=(x_lo, x_hi))
+        apply_mpl_style(fig, plot_style)
         if show_legend and legend_lines:
             ordered = [legend_lines[k] for k in legend_order(curves)]
             ordered = [h for h in ordered if h.get_label() and not h.get_label().startswith("_")]
             if ordered:
-                ax.legend(handles=ordered, frameon=False, **mpl_legend_options())
-        apply_mpl_style(fig, plot_style)
+                place_legend(fig, ax, ordered)
         if show_zoom and y_mode != "tauc" and x_min <= zoom_range[0] < zoom_range[1] <= x_max:
             add_mpl_zoom_inset(ax, prepared, range_in_unit(zoom_range[0], zoom_range[1], x_unit), location=zoom_location,
                                font_size=annotation_font_size, unit_text=unit_text)
@@ -1484,9 +1565,9 @@ if active:
             plot_bgcolor="rgba(255,255,255,0)" if plot_style["transparent_background"] else "white",
             paper_bgcolor="rgba(255,255,255,0)" if plot_style["transparent_background"] else "white",
             showlegend=show_legend,
-            legend=dict(x=lx, y=ly, xanchor=lxa, yanchor=lya, font=dict(color="black", size=legend_font_size)),
+            legend=dict(x=lx, y=ly, xanchor=lxa, yanchor=lya, font=dict(color="black", size=legend_layout["font"])),
             margin=dict(l=int(fig_width * 96 * plot_style["margin_left"]),
-                        r=int(fig_width * 96 * (1 - plot_style["margin_right"])),
+                        r=int(fig_width * 96 * (1 - legend_layout["right"])),
                         t=int(fig_height * 96 * (1 - plot_style["margin_top"])),
                         b=int(fig_height * 96 * plot_style["margin_bottom"])),
         )
@@ -1532,7 +1613,11 @@ if active:
                           "Spectra that cannot be converted to the chosen quantity are not drawn (transmittance data cannot become reflectance, nor the reverse): ")
                        + ", ".join(f"{name} ({mode})" for name, mode in skipped))
         interactive_tab, export_tab = st.tabs([T["interactive_preview"], T["export_preview"]])
+        _sl = bool(show_legend)
+        fig = build_figure(show_legend=_sl)          # first: the preview takes the fitted legend size and margin from it
         pfig = build_plotly_figure()
+        # Exports re-apply the margins: keep the room made for a legend outside the axes.
+        export_style = {**plot_style, "margin_right": legend_layout["right"]}
         with interactive_tab:
             st.caption(T["drag_zoom"])
             st.plotly_chart(pfig, **FULL_WIDTH["plotly_chart"], config={
@@ -1542,15 +1627,13 @@ if active:
                 "displaylogo": False,
             })
 
-        _sl = bool(show_legend)
-        fig = build_figure(show_legend=_sl)
-        png_bytes = export_figure(fig, "png", 150, style=plot_style)
-        pdf_bytes = export_figure(fig, "pdf", dpi_export, style=plot_style)
-        svg_bytes = export_figure(fig, "svg", dpi_export, style=plot_style)
+        png_bytes = export_figure(fig, "png", 150, style=export_style)
+        pdf_bytes = export_figure(fig, "pdf", dpi_export, style=export_style)
+        svg_bytes = export_figure(fig, "svg", dpi_export, style=export_style)
         # Bound the in-memory raster canvas for the shared web and PC editions.
         _raster_ok = fig_width * fig_height * dpi_export ** 2 <= 36_000_000
-        png_export_bytes = export_figure(fig, "png", dpi_export, style=plot_style) if _raster_ok else None
-        tiff_bytes = export_figure(fig, "tiff", dpi_export, style=plot_style) if _raster_ok else None
+        png_export_bytes = export_figure(fig, "png", dpi_export, style=export_style) if _raster_ok else None
+        tiff_bytes = export_figure(fig, "tiff", dpi_export, style=export_style) if _raster_ok else None
         plt.close(fig)
 
         with export_tab:

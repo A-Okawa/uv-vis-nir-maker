@@ -7,7 +7,7 @@ from project_io import clean_settings, ProjectError
 
 TEMPLATE_KEYS = frozenset(STYLE_KEYS) | {
     "fig_width", "fig_height", "dpi_export", "font_size", "tick_font_size", "legend_font_size",
-    "show_legend", "legend_loc", "show_yticks", "y_major_tick", "major_tick", "show_minor", "minor_tick",
+    "show_legend", "legend_loc", "legend_ncol", "legend_fit", "show_yticks", "y_major_tick", "major_tick", "show_minor", "minor_tick",
     "show_side_labels", "label_side", "label_fontsize", "label_offset_x", "label_offset_y",
     "annotation_font_size", "x_label", "y_label",
     "marks_style", "marks_color", "marks_label_mode", "marks_show_value", "marks_decimals", "marks_fontsize",
