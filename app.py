@@ -38,7 +38,7 @@ from plot_extras import (
 )
 
 APP_VERSION = "1.1"
-LAST_UPDATED = "2026-11-18"
+LAST_UPDATED = "2026-11-20"
 LOCAL_MODE = os.environ.get("UVVIS_MAKER_LOCAL") == "1"
 # Named colours in the graph app's format; copy that app's colors.csv here to share its names.
 COLORS_FILE = Path(__file__).resolve().parent / "colors.csv"
@@ -678,21 +678,6 @@ def data_mode(spectrum):
 # ===== サイドバー =====
 
 st.sidebar.caption(f"Last updated: {LAST_UPDATED}")
-st.sidebar.header(T["session_header"])
-st.sidebar.caption(T["project_help"])
-session_upload = st.sidebar.file_uploader(
-    T["load_session"], type=["json"], key="_session_upload",
-    on_change=_open_uploaded_project,
-)
-if st.session_state.pop("_project_loaded", False):
-    st.sidebar.success(T["project_loaded"])
-if st.session_state.get("_project_error"):
-    st.sidebar.error(T["project_error"] + st.session_state["_project_error"])
-if LOCAL_DATA_DIR and (LOCAL_DATA_DIR / "autosave.json").is_file() and not st.session_state.get("_spectra_bytes"):
-    st.sidebar.button(T["resume_local"], on_click=_open_local_autosave, **FULL_WIDTH["button"])
-st.sidebar.button(T["new_project"], on_click=_new_project, **FULL_WIDTH["button"])
-autosave_status = st.sidebar.empty()
-
 _file_epoch = st.session_state.get("_file_epoch", 0)
 st.sidebar.header(T["data_header"])
 st.sidebar.caption(T["native_help"])
@@ -748,6 +733,22 @@ for _item in active:
         _mode, _percent = data_mode(_item.spectrum)
         st.sidebar.caption(ui(f"{_item.source}: 値の種類の記載がないため {'%' if _percent else ''}{_mode} として読みました。",
                               f"{_item.source}: no header names the values; read as {'%' if _percent else ''}{_mode}."))
+
+# ----- saved projects (below the data: a new figure starts from the measurement files)
+st.sidebar.header(T["session_header"])
+st.sidebar.caption(T["project_help"])
+session_upload = st.sidebar.file_uploader(
+    T["load_session"], type=["json"], key="_session_upload",
+    on_change=_open_uploaded_project,
+)
+if st.session_state.pop("_project_loaded", False):
+    st.sidebar.success(T["project_loaded"])
+if st.session_state.get("_project_error"):
+    st.sidebar.error(T["project_error"] + st.session_state["_project_error"])
+if LOCAL_DATA_DIR and (LOCAL_DATA_DIR / "autosave.json").is_file() and not st.session_state.get("_spectra_bytes"):
+    st.sidebar.button(T["resume_local"], on_click=_open_local_autosave, **FULL_WIDTH["button"])
+st.sidebar.button(T["new_project"], on_click=_new_project, **FULL_WIDTH["button"])
+autosave_status = st.sidebar.empty()
 
 # ----- graph settings
 st.sidebar.header(T["graph_settings"])
